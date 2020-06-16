@@ -21,6 +21,83 @@ index befe726af9c10b1563a7fc0bb77cc55f65943d5c..bac51f33f35f96fe4ecc764cf5ca8871
      DCHECK(media_keys_listener_);
    }
  }
+diff --git a/content/browser/media/media_keys_listener_manager_impl.cc b/content/browser/media/media_keys_listener_manager_impl.cc
+index 22fd524ae2996108fefdc3bb55a0f2b366310aa9..2a1fa620993aecde593de7c58c8a4688eb6181e0 100644
+--- a/content/browser/media/media_keys_listener_manager_impl.cc
++++ b/content/browser/media/media_keys_listener_manager_impl.cc
+@@ -15,6 +15,12 @@
+ #include "ui/base/accelerators/accelerator.h"
+ #include "ui/base/idle/idle.h"
+ 
++namespace {
++  // False if media key handling has been explicitly disabled by a call to
++  // |DisableInternalMediaKeyHandling()|.
++  bool media_key_handling_enabled_ = true;
++}
++
+ namespace content {
+ 
+ MediaKeysListenerManagerImpl::ListeningData::ListeningData()
+@@ -33,7 +39,6 @@ MediaKeysListenerManager* MediaKeysListenerManager::GetInstance() {
+ MediaKeysListenerManagerImpl::MediaKeysListenerManagerImpl()
+     : hardware_key_media_controller_(
+           std::make_unique<HardwareKeyMediaController>()),
+-      media_key_handling_enabled_(true),
+       auxiliary_services_started_(false) {
+   DCHECK(!MediaKeysListenerManager::GetInstance());
+ }
+@@ -110,6 +115,11 @@ void MediaKeysListenerManagerImpl::EnableInternalMediaKeyHandling() {
+   UpdateKeyListening();
+ }
+ 
++// static
++void MediaKeysListenerManagerImpl::SetShouldUseInternalMediaKeyHandling(bool should_use) {
++  media_key_handling_enabled_ = should_use;
++}
++
+ void MediaKeysListenerManagerImpl::OnMediaKeysAccelerator(
+     const ui::Accelerator& accelerator) {
+   // We should never receive an accelerator that was never registered.
+@@ -177,8 +187,14 @@ void MediaKeysListenerManagerImpl::EnsureMediaKeysListener() {
+ 
+   EnsureAuxiliaryServices();
+ 
+-  media_keys_listener_ = ui::MediaKeysListener::Create(
++  if (!media_key_handling_enabled_) {
++    media_keys_listener_ = ui::MediaKeysListener::Create(
++      this, ui::MediaKeysListener::Scope::kGlobalRequiresAccessibility);
++  } else {
++    media_keys_listener_ = ui::MediaKeysListener::Create(
+       this, ui::MediaKeysListener::Scope::kGlobal);
++  }
++
+   DCHECK(media_keys_listener_);
+ 
+   media_keys_listener_->SetIsMediaPlaying(is_media_playing_);
+diff --git a/content/browser/media/media_keys_listener_manager_impl.h b/content/browser/media/media_keys_listener_manager_impl.h
+index dd122caa0e3e16ad74609d5aebaa38a1fee8e6c6..e999caf5829d580de13c50d6d0b95833096be63c 100644
+--- a/content/browser/media/media_keys_listener_manager_impl.h
++++ b/content/browser/media/media_keys_listener_manager_impl.h
+@@ -44,6 +44,8 @@ class CONTENT_EXPORT MediaKeysListenerManagerImpl
+   // ui::MediaKeysListener::Delegate:
+   void OnMediaKeysAccelerator(const ui::Accelerator& accelerator) override;
+ 
++  static void SetShouldUseInternalMediaKeyHandling(bool should_use);
++
+   // Informs the MediaKeysListener whether or not media is playing.
+   // TODO(https://crbug.com/974035): Once the MediaKeysListenerManager has been
+   // refactored to work with system media controls this should no longer be
+@@ -101,10 +103,6 @@ class CONTENT_EXPORT MediaKeysListenerManagerImpl
+   std::unique_ptr<HardwareKeyMediaController> hardware_key_media_controller_;
+   std::unique_ptr<SystemMediaControlsNotifier> system_media_controls_notifier_;
+ 
+-  // False if media key handling has been explicitly disabled by a call to
+-  // |DisableInternalMediaKeyHandling()|.
+-  bool media_key_handling_enabled_;
+-
+   // True if auxiliary services have already been started.
+   bool auxiliary_services_started_;
+ 
 diff --git a/ui/base/accelerators/media_keys_listener.h b/ui/base/accelerators/media_keys_listener.h
 index 6787fa39da18ec26c215e4cbe0b3f69093323f8c..ec10c46cde437a935edfdf79e5ba9622c6ba1d67 100644
 --- a/ui/base/accelerators/media_keys_listener.h

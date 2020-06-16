@@ -9,6 +9,8 @@
 
 #include "base/stl_util.h"
 #include "base/strings/utf_string_conversions.h"
+#include "chrome/common/extensions/command.h"
+#include "content/browser/media/media_keys_listener_manager_impl.h"
 #include "gin/dictionary.h"
 #include "gin/object_template_builder.h"
 #include "shell/browser/api/electron_api_system_preferences.h"
@@ -20,6 +22,7 @@
 #include "base/mac/mac_util.h"
 #endif
 
+using content::MediaKeysListenerManagerImpl;
 using extensions::GlobalShortcutListener;
 
 namespace {
@@ -89,10 +92,14 @@ bool GlobalShortcut::RegisterAll(
 
 bool GlobalShortcut::Register(const ui::Accelerator& accelerator,
                               const base::Closure& callback) {
+  if (extensions::Command::IsMediaKey(accelerator)) {
 #if defined(OS_MACOSX)
-  if (RegisteringMediaKeyForUntrustedClient(accelerator))
-    return false;
+    if (RegisteringMediaKeyForUntrustedClient(accelerator))
+      return false;
 #endif
+
+    MediaKeysListenerManagerImpl::SetShouldUseInternalMediaKeyHandling(false);
+  }
 
   if (!GlobalShortcutListener::GetInstance()->RegisterAccelerator(accelerator,
                                                                   this)) {
@@ -106,6 +113,10 @@ bool GlobalShortcut::Register(const ui::Accelerator& accelerator,
 void GlobalShortcut::Unregister(const ui::Accelerator& accelerator) {
   if (accelerator_callback_map_.erase(accelerator) == 0)
     return;
+
+  if (extensions::Command::IsMediaKey(accelerator)) {
+    MediaKeysListenerManagerImpl::SetShouldUseInternalMediaKeyHandling(true);
+  }
 
   GlobalShortcutListener::GetInstance()->UnregisterAccelerator(accelerator,
                                                                this);
